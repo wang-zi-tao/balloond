@@ -58,8 +58,8 @@ impl DomainMemoryRecord {
         }
         debug!("memoey_stats={:?}", memoey_stats);
         let usable = memoey_stats[8];
-        let swap_out = memoey_stats[1];
-        let physical_memory_size = current_memory + (swap_out / 4) - usable + opt.reserved * 1024;
+        let _swap_out = memoey_stats[1];
+        let physical_memory_size = current_memory - usable + opt.reserved * 1024;
         let align = opt.align * 1024;
         let physical_memory_size_aligned = u64::min(
             max,
