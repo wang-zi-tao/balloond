@@ -3,6 +3,7 @@ use failure::{format_err, Fallible};
 use libc::c_void;
 use log::{debug, info};
 use std::collections::{HashMap, VecDeque};
+use sysinfo::SystemExt;
 use virt::domain::{sys, Domain, VIR_DOMAIN_SHUTDOWN, VIR_DOMAIN_SHUTOFF};
 
 #[derive(Debug)]
@@ -29,7 +30,12 @@ pub(crate) struct DomainMemoryRecord {
     memory: u64,
 }
 impl DomainMemoryRecord {
-    pub(crate) fn process_domain(&mut self, domain: Domain, opt: &Opt) -> Fallible<()> {
+    pub(crate) fn process_domain(
+        &mut self,
+        domain: Domain,
+        domain_count: usize,
+        opt: &Opt,
+    ) -> Fallible<()> {
         let name = domain.get_name()?;
         let state = domain.get_state()?.0;
         match state {
@@ -39,7 +45,7 @@ impl DomainMemoryRecord {
             }
             _ => {}
         }
-        let current_memory = domain.get_info()?.memory;
+        let current_memory = domain.get_info()?.memory as i64;
         let max = domain.get_max_memory()?;
         domain.set_memory_stats_period(2, 0)?;
         let mut memoey_stats = [0; 13];
@@ -56,14 +62,30 @@ impl DomainMemoryRecord {
                 }
             }
         }
-        debug!("memoey_stats={:?}", memoey_stats);
-        let usable = memoey_stats[8];
-        let _swap_out = memoey_stats[1];
-        let physical_memory_size = current_memory - usable + opt.reserved * 1024;
+        let usable = memoey_stats[8] as i64;
+        let mut system = sysinfo::System::default();
+        system.refresh_all();
+        let host_usable_memory = (system.get_total_memory() - system.get_used_memory()) as i64;
+        debug!("host available memory: {}", host_usable_memory);
+        let physical_memory_size = (i64::max(
+            i64::min(
+                current_memory + host_usable_memory - opt.host_reserved as i64 * 1024,
+                current_memory
+                    + (((host_usable_memory + usable) as f32
+                        * (opt.reserved_percent / domain_count as f32))
+                        as i64
+                        - usable),
+            ),
+            current_memory - usable + opt.guest_reserved as i64 * 1024,
+        )) as u64;
         let align = opt.align * 1024;
         let physical_memory_size_aligned = u64::min(
             max,
             physical_memory_size - physical_memory_size % align + align,
+        );
+        debug!(
+            "expected guest available memory: {}",
+            physical_memory_size_aligned - (current_memory - usable) as u64
         );
         if self.records.len() >= opt.history_count {
             self.records.pop_front();
@@ -71,8 +93,6 @@ impl DomainMemoryRecord {
         self.records.push_back(DomainMemory {
             memory: physical_memory_size_aligned,
         });
-
-        debug!("records={:?}", &self.records);
         let memory = self
             .records
             .iter()

@@ -23,7 +23,8 @@ fn main() -> Fallible<()> {
     let mut db = DomainDataBase::default();
     loop {
         let mut domain_set=HashSet::new();
-        for domain_id in connection.list_domains()? {
+        let domain_list=connection.list_domains()?;
+        for &domain_id in &domain_list {
             if let Ok(domain) = Domain::lookup_by_id(&connection, domain_id) {
                 if let Ok(name) = domain.get_name() {
                     domain_set.insert(name.clone());
@@ -31,7 +32,7 @@ fn main() -> Fallible<()> {
                         .records
                         .entry(name)
                         .or_default()
-                        .process_domain(domain, &opt);
+                        .process_domain(domain,domain_list.len(), &opt);
                     if let Err(e) = result {
                         error!("{}", e);
                     }

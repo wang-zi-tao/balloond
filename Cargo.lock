@@ -70,6 +70,7 @@ dependencies = [
  "libc",
  "log",
  "structopt",
+ "sysinfo",
  "virt",
 ]
 
@@ -332,6 +333,15 @@ dependencies = [
  "quote",
  "syn",
  "unicode-xid",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.2.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d89bda38f2dd38b515181730f3dd8c6b23bcc286f96604cbcb048f4e394dd55"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
