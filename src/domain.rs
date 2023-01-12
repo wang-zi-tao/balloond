@@ -3,7 +3,7 @@ use failure::{format_err, Fallible};
 use libc::c_void;
 use log::{debug, info};
 use std::collections::{HashMap, VecDeque};
-use sysinfo::SystemExt;
+use sysinfo::{System, SystemExt};
 use virt::domain::{sys, Domain, VIR_DOMAIN_SHUTDOWN, VIR_DOMAIN_SHUTOFF};
 
 #[derive(Debug)]
@@ -33,6 +33,7 @@ impl DomainMemoryRecord {
     pub(crate) fn process_domain(
         &mut self,
         domain: Domain,
+        system: &mut System,
         domain_count: usize,
         opt: &Opt,
     ) -> Fallible<()> {
@@ -63,8 +64,7 @@ impl DomainMemoryRecord {
             }
         }
         let usable = memoey_stats[8] as i64;
-        let mut system = sysinfo::System::default();
-        system.refresh_all();
+        debug!("guest available memory: {}", usable);
         let host_usable_memory = (system.get_total_memory() - system.get_used_memory()) as i64;
         debug!("host available memory: {}", host_usable_memory);
         let physical_memory_size = (i64::max(
