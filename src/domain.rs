@@ -2,9 +2,12 @@ use crate::cli::Opt;
 use failure::{format_err, Fallible};
 use libc::c_void;
 use log::{debug, info};
-use std::collections::{HashMap, VecDeque};
-use sysinfo::{System, SystemExt};
-use virt::domain::{sys, Domain, VIR_DOMAIN_SHUTDOWN, VIR_DOMAIN_SHUTOFF};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::MaybeUninit,
+};
+use sysinfo::{System, SystemExt, CpuExt};
+use virt::{domain::Domain, sys::*};
 
 #[derive(Debug)]
 struct DomainMemory {
@@ -13,16 +16,6 @@ struct DomainMemory {
 #[derive(Default)]
 pub(crate) struct DomainDataBase {
     pub(crate) records: HashMap<String, DomainMemoryRecord>,
-}
-
-#[link(name = "virt")]
-extern "C" {
-    fn virDomainMemoryStats(
-        ptr: *mut c_void,
-        stats: sys::virDomainMemoryStatsPtr,
-        nr_stats: libc::c_uint,
-        flags: libc::c_uint,
-    ) -> libc::c_int;
 }
 #[derive(Default)]
 pub(crate) struct DomainMemoryRecord {
@@ -51,13 +44,12 @@ impl DomainMemoryRecord {
         domain.set_memory_stats_period(2, 0)?;
         let mut memoey_stats = [0; 13];
         unsafe {
-            let mut pinfo: [sys::virDomainMemoryStats; 16] = Default::default();
-            let ret =
-                virDomainMemoryStats(domain.as_ptr().cast(), &mut pinfo[0], pinfo.len() as u32, 0);
-            if ret == -1 {
+            let mut pinfo: MaybeUninit<[virDomainMemoryStatStruct; 16]> = MaybeUninit::uninit();
+            if virDomainMemoryStats(domain.as_ptr().cast(), pinfo.as_mut_ptr().cast(), 16, 0) == -1
+            {
                 return Err(format_err!("virDomainMemoryStats failed"));
             }
-            for i in &pinfo {
+            for i in pinfo.assume_init() {
                 if (i.tag as usize) < memoey_stats.len() {
                     memoey_stats[i.tag as usize] = i.val;
                 }
@@ -65,7 +57,8 @@ impl DomainMemoryRecord {
         }
         let usable = memoey_stats[8] as i64;
         debug!("guest available memory: {}", usable);
-        let host_usable_memory = (system.get_total_memory() - system.get_used_memory()) as i64;
+        let host_usable_memory = (system.total_memory() - system.used_memory()) as i64;
+        let host_cpu=system.global_cpu_info();
         debug!("host available memory: {}", host_usable_memory);
         let physical_memory_size = (i64::max(
             i64::min(
